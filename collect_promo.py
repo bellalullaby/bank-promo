@@ -544,7 +544,7 @@ def interactive_collect(vault_path, generate_cards, no_review, verbose):
         promos = review_copy(promos, verbose=verbose)
 
     # ── 去重 ──
-    new_promos, dup_count = deduplicate(promos, vault_path, verbose=verbose)
+    new_promos, dup_count = deduplicate(promos, vault_path)
 
     if not new_promos:
         print(f"   ⚠️ 全部重复 ({dup_count} 条)，无新内容")
@@ -554,7 +554,7 @@ def interactive_collect(vault_path, generate_cards, no_review, verbose):
     print(f"\n📝 写入 Obsidian 笔记...")
     written = 0
     for p in new_promos:
-        if write_note(p, vault_path, dry_run=False):
+        if write_note(p, vault_path, verbose=verbose):
             written += 1
 
     print(f"   ✅ 成功写入 {written}/{len(new_promos)} 篇笔记")
