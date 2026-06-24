@@ -1137,9 +1137,10 @@ tags:
 - **可信度**：{confidence}
 """
 
-    # 写入文件（含银行名防同名冲突）
+    # 写入文件（按日期分文件夹：银行-标题.md）
+    date_folder = today
     safe_bank = re.sub(r'[\\/*?:"<>|]', "", bank[:8])
-    filepath = os.path.join(vault_path, f"{safe_bank}-{safe_title}.md")
+    filepath = os.path.join(vault_path, date_folder, f"{safe_bank}-{safe_title}.md")
 
     try:
         # 确保目录存在

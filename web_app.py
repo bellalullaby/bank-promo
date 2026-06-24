@@ -305,6 +305,7 @@ def collect():
     # 出图
     card_count = 0
     card_error = ""
+    date_folder = datetime.date.today().isoformat()
     if generate_cards and note_count > 0:
         ok = cp.trigger_card_generation(vault_path)
         if not ok:
@@ -313,9 +314,10 @@ def collect():
         for p in new_promos:
             safe_bank = re.sub(r'[\\/*?:"<>|]', "", p.get("bank", "")[:8])
             safe_title = "".join(c if c not in r'\/:*?"<>|' else "·" for c in p.get("title", ""))
-            png_path = os.path.join(vault_path, f"{safe_bank}-{safe_title}.png")
+            png_path = os.path.join(vault_path, date_folder, f"{safe_bank}-{safe_title}.png")
             if os.path.exists(png_path):
-                p["card_path"] = "/cards/" + os.path.basename(png_path)
+                rel_path = os.path.relpath(png_path, vault_path).replace("\\", "/")
+                p["card_path"] = "/cards/" + rel_path
                 card_count += 1
 
     # 构建返回数据
