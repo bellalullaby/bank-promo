@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>🏦 银行优惠卡片预览 V3</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #1a1a2e; color: #eee; font-family: "HarmonyOS Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif; padding: 40px 20px; }
+  h1 { text-align: center; margin-bottom: 6px; font-size: 28px; }
+  .subtitle { text-align: center; color: #888; margin-bottom: 8px; font-size: 14px; }
+  .layout-tag { text-align: center; margin-bottom: 30px; }
+  .layout-tag span { display: inline-block; margin: 3px 6px; padding: 4px 14px; background: #16213e; border-radius: 16px; color: #aaa; font-size: 13px; }
+  .grid { display: flex; flex-wrap: wrap; gap: 24px; justify-content: center; max-width: 1600px; margin: 0 auto 40px; }
+  .card-wrapper { background: #16213e; border-radius: 16px; padding: 20px; text-align: center; transition: transform 0.2s; }
+  .card-wrapper:hover { transform: translateY(-4px); }
+  .card-wrapper img { width: 339px; height: 281px; border-radius: 8px; box-shadow: 0 8px 32px rgba(0,0,0,0.4); }
+  .card-wrapper .bank-name { margin-top: 10px; font-size: 15px; font-weight: 600; }
+  .card-wrapper .details { margin-top: 4px; font-size: 12px; color: #888; }
+  .card-wrapper .badge { display: inline-block; margin: 6px 2px 0; padding: 3px 12px; border-radius: 10px; font-size: 12px; font-weight: 500; }
+  .filesize { display: block; margin-top: 3px; font-size: 11px; color: #666; }
+  .section-title { text-align: center; color: #aaa; font-size: 16px; margin: 30px 0 16px; padding-top: 20px; border-top: 1px solid #333; max-width: 800px; margin-left: auto; margin-right: auto; }
+
+  /* 对比模式：并排显示 */
+  .compare-row { display: flex; gap: 16px; justify-content: center; align-items: flex-start; flex-wrap: wrap; margin-bottom: 24px; }
+  .compare-item { text-align: center; }
+  .compare-item .ver { font-size: 12px; margin-bottom: 8px; }
+  .compare-item .ver span { padding: 3px 10px; border-radius: 10px; }
+  .v1-badge { background: #444; color: #999; }
+  .v3-badge { background: #1a6b3c; color: #4f0; }
+  .compare-item img { width: 300px; height: 248px; border-radius: 8px; box-shadow: 0 4px 16px rgba(0,0,0,0.4); }
+</style>
+</head>
+<body>
+<h1>🎨 V3 最终版 — 左对齐 + 标题60px + 副标题胶囊</h1>
+<p class="subtitle">银行名小标签贴边 · 主标题60px Bold · 副标题42px Medium套白底胶囊+箭头</p>
+<div class="layout-tag">
+  <span>📐 678×562</span>
+  <span>🔝 上圆角40px</span>
+  <span>🎨 15%品牌色渐变</span>
+  <span>🏷️ 标签24px</span>
+  <span>📝 标题60px</span>
+  <span>💊 副标题42px胶囊</span>
+</div>
+
+<!-- V1 vs V3 并排对比 -->
+<div class="section-title">🔍 建设银行 · V1 vs V3 对比</div>
+<div class="compare-row">
+  <div class="compare-item">
+    <div class="ver"><span class="v1-badge">V1 居中布局</span></div>
+    <img src="test_card_建行.png" alt="V1">
+  </div>
+  <div class="compare-item">
+    <div class="ver"><span class="v3-badge">V3 左对齐布局</span></div>
+    <img src="test_v3_建行.png" alt="V3">
+  </div>
+</div>
+
+<!-- V3 多色系 -->
+<div class="section-title">🎨 V3 多色系卡片</div>
+<div class="grid" id="grid-v3"></div>
+
+<script>
+const cards = [
+  { file:"test_v3_民生.png", bank:"民生银行", title:"1分钱乘地铁", benefit:"满2元减1.99元", color:"#1C1F89", tone:"🔵蓝", size:"23.0 KB", tag:"V3" },
+  { file:"test_v3_建行.png", bank:"建设银行", title:"满100减50", benefit:"每日限量抢", color:"#0269B5", tone:"🔵蓝", size:"18.8 KB", tag:"V3" },
+  { file:"test_v3_招行.png", bank:"招商银行", title:"5折优惠", benefit:"每周三开抢", color:"#E40809", tone:"🔴红", size:"16.4 KB", tag:"V3" },
+  { file:"test_v3_光大.png", bank:"光大银行", title:"1分钱乘公交", benefit:"低碳出行季", color:"#6B238E", tone:"🟣紫", size:"23.5 KB", tag:"V3" },
+];
+
+const grid = document.getElementById('grid-v3');
+cards.forEach(c => {
+  const wrapper = document.createElement('div');
+  wrapper.className = 'card-wrapper';
+  wrapper.innerHTML = `
+    <img src="${c.file}" alt="${c.title}" loading="lazy"
+         onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
+    <div style="display:none; width:339px; height:281px; background:#222; border-radius:8px;
+                align-items:center; justify-content:center; border:2px dashed #444;">
+      <span style="color:#666;">📷 ${c.file}</span>
+    </div>
+    <div class="bank-name">${c.bank}</div>
+    <div class="details">「${c.title}」· ${c.benefit}</div>
+    <span class="badge" style="background:${c.color}22; color:${c.color}">${c.tone}</span>
+    <span class="badge" style="background:#1a6b3c33; color:#4f0">${c.tag}</span>
+    <span class="filesize">${c.size}</span>
+  `;
+  grid.appendChild(wrapper);
+});
+</script>
+</body>
+</html>

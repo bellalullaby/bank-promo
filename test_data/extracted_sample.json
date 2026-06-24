@@ -1,0 +1,62 @@
+[
+  {
+    "bank": "建设银行",
+    "title": "满100减50",
+    "benefit": "每日10点限量抢",
+    "region": "全国",
+    "start_date": null,
+    "end_date": "2026-07-31",
+    "link": "https://post.smzdm.com/p/ap9g6w0z/",
+    "tags": ["云闪付", "信用卡", "满减"],
+    "raw_description": "建设银行信用卡云闪付满100减50，每日10点限量抢，截止2026年7月31日",
+    "confidence": "high"
+  },
+  {
+    "bank": "邮储银行",
+    "title": "0.1元购乘车券",
+    "benefit": "得5元券包",
+    "region": "全国",
+    "start_date": "2026-06-06",
+    "end_date": null,
+    "link": "https://post.smzdm.com/p/a702nx7o/",
+    "tags": ["云闪付", "公交地铁", "信用卡"],
+    "raw_description": "邮储信用卡0.1元购10张0.5元乘车券，满0.51元可用，每日限用2次",
+    "confidence": "high"
+  },
+  {
+    "bank": "工商银行",
+    "title": "地铁公交1折",
+    "benefit": "每月限8次",
+    "region": "全国",
+    "start_date": null,
+    "end_date": null,
+    "link": "https://post.smzdm.com/p/ax62mp83/",
+    "tags": ["云闪付", "公交地铁", "1折"],
+    "raw_description": "工商银行地铁公交1折优惠，每月限8次，全国多城市可用",
+    "confidence": "medium"
+  },
+  {
+    "bank": "浦发银行",
+    "title": "多平台支付优惠",
+    "benefit": "分期满减最高500",
+    "region": "全国",
+    "start_date": null,
+    "end_date": "2026-06-30",
+    "link": "https://post.smzdm.com/p/ao9gm2kz/",
+    "tags": ["京东", "淘宝", "抖音", "分期"],
+    "raw_description": "浦发银行618联合京东淘宝抖音等平台，首绑立减、分期满减最高500元",
+    "confidence": "medium"
+  },
+  {
+    "bank": "光大银行",
+    "title": "生活缴费立减",
+    "benefit": "满50减8元",
+    "region": "全国",
+    "start_date": null,
+    "end_date": null,
+    "link": "https://post.smzdm.com/p/a702nx7o/",
+    "tags": ["云闪付", "生活缴费"],
+    "raw_description": "光大银行云闪付缴水电燃气满50减8元",
+    "confidence": "medium"
+  }
+]

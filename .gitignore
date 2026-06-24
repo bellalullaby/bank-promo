@@ -1,0 +1,21 @@
+# 字体（太大，从华为官网单独下载）
+fonts/
+
+# 测试生成的图片
+*.png
+*.zip
+
+# macOS 垃圾
+__MACOSX/
+.DS_Store
+**/.DS_Store
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# 临时文件
+*.tmp
+*.log
