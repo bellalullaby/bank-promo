@@ -411,8 +411,10 @@ def batch_generate(vault_path: str = None):
             if not title:
                 continue
 
-            # 生成图片到同目录
-            img_name = f"{title}.png"
+            # 生成图片到同目录（文件名与 .md 笔记一致：银行-标题.png）
+            safe_bank_raw = "".join(c for c in bank if c not in r'[\\/*?:"<>|]')[:8]
+            safe_title_raw = "".join(c if c not in r':*?"<>|' else "·" for c in title)
+            img_name = f"{safe_bank_raw}-{safe_title_raw}.png"
             img_path = os.path.join(root, img_name)
 
             result = generate_card(bank, title, benefit, img_path)

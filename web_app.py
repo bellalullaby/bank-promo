@@ -181,6 +181,9 @@ function renderResult(data) {
   if (data.error) {
     html += `<div style="color:var(--warn);font-weight:600">⚠️ ${data.error}</div>`;
   }
+  if (data.card_error) {
+    html += `<div style="color:var(--warn);margin-top:4px">🎨 ${data.card_error}</div>`;
+  }
 
   // SPA warning
   if (data.spa_warning) {
@@ -301,13 +304,15 @@ def collect():
 
     # 出图
     card_count = 0
+    card_error = ""
     if generate_cards and note_count > 0:
-        cp.trigger_card_generation(vault_path)
-        # 统计生成的卡片
+        ok = cp.trigger_card_generation(vault_path)
+        if not ok:
+            card_error = "出图子进程执行失败，请查看终端日志"
+        # 统计生成的卡片（文件名格式：银行-标题.png）
         for p in new_promos:
             safe_bank = re.sub(r'[\\/*?:"<>|]', "", p.get("bank", "")[:8])
             safe_title = "".join(c if c not in r'\/:*?"<>|' else "·" for c in p.get("title", ""))
-            # 检查是否有 PNG 文件
             png_path = os.path.join(vault_path, f"{safe_bank}-{safe_title}.png")
             if os.path.exists(png_path):
                 p["card_path"] = "/cards/" + os.path.basename(png_path)
@@ -329,6 +334,7 @@ def collect():
         "extracted_count": len(promos),
         "note_count": note_count,
         "card_count": card_count,
+        "card_error": card_error,
         "promos": promo_list,
         "vault_path": vault_path,
     })
