@@ -357,8 +357,196 @@ def _search_smzdm_direct(keyword, max_results=10, verbose=False):
 
 
 # ═══════════════════════════════════════════════════
-# 函数 2: 从本地文件加载搜索结果
+# 函数 1.5: URL 内容抓取（交互模式用）
 # ═══════════════════════════════════════════════════
+
+def fetch_url_content(url, verbose=False):
+    """
+    抓取任意 URL 的页面文本内容，去 HTML 标签。
+    优先 curl_cffi，回退 requests。
+
+    返回:
+        str: 页面纯文本（截断到 6000 字符，AI 够用）
+    """
+    http_lib = None
+    try:
+        from curl_cffi import requests as curl_requests
+        http_lib = "curl_cffi"
+    except ImportError:
+        import requests
+        http_lib = "requests"
+
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/125.0.0.0 Safari/537.36"
+        ),
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+    }
+
+    try:
+        if verbose:
+            print(f"   🌐 抓取: {url[:100]}...")
+
+        if http_lib == "curl_cffi":
+            resp = curl_requests.get(
+                url, headers=headers, timeout=15,
+                impersonate="chrome124",
+            )
+        else:
+            resp = requests.get(url, headers=headers, timeout=15)
+
+        if verbose:
+            print(f"      HTTP {resp.status_code} | {len(resp.text)} 字符")
+
+        if resp.status_code != 200:
+            if verbose:
+                print(f"      ⚠️ 抓取失败，将尝试用 URL 本身作为输入")
+            return f"[页面抓取失败 HTTP {resp.status_code}] 请根据 URL 自行判断: {url}"
+
+        # 去 HTML 标签，提取纯文本
+        try:
+            from bs4 import BeautifulSoup
+            soup = BeautifulSoup(resp.text, "html.parser")
+            # 移除 script/style
+            for tag in soup(["script", "style", "nav", "footer", "header"]):
+                tag.decompose()
+            text = soup.get_text(separator="\n", strip=True)
+        except ImportError:
+            # 无 bs4 时用简单正则去标签
+            import re
+            text = re.sub(r"<script[^>]*>.*?</script>", "", resp.text, flags=re.DOTALL | re.I)
+            text = re.sub(r"<style[^>]*>.*?</style>", "", text, flags=re.DOTALL | re.I)
+            text = re.sub(r"<[^>]+>", " ", text)
+            text = re.sub(r"\s+", " ", text).strip()
+
+        # 截断（AI 单条不需要太长）
+        if len(text) > 6000:
+            text = text[:6000] + "\n...[内容已截断]"
+
+        if verbose:
+            print(f"      ✅ 提取纯文本: {len(text)} 字符")
+
+        return text
+
+    except Exception as e:
+        if verbose:
+            print(f"      ⚠️ 抓取异常: {type(e).__name__}: {e}")
+        return f"[抓取异常: {e}] 请手动查看: {url}"
+
+
+def interactive_collect(vault_path, generate_cards, no_review, verbose):
+    """
+    交互模式：用户粘贴链接/文案 → AI 提取 → 审核 → 出图。
+    不依赖任何搜索引擎，全手动输入。
+    """
+    print()
+    print("=" * 50)
+    print("🏦 银行优惠 · 交互采集")
+    print("=" * 50)
+    print()
+    print("📋 粘贴活动链接或文案，每行一条")
+    print("   支持: smzdm / cup.com.cn / 银行官网 / 任意优惠页面")
+    print("   也支持直接粘贴活动文案文字")
+    print()
+    print("   输入完毕后，空行 + 回车提交 👇")
+    print()
+
+    lines = []
+    while True:
+        try:
+            line = input().strip()
+        except (EOFError, KeyboardInterrupt):
+            break
+        if not line:
+            break
+        lines.append(line)
+
+    if not lines:
+        print("   ⚠️ 未输入任何内容，退出")
+        return
+
+    print(f"\n📥 收到 {len(lines)} 条输入，开始处理...")
+
+    # ── 抓取 URL / 解析文本 ──
+    raw_items = []
+    for item in lines:
+        if item.startswith("http://") or item.startswith("https://"):
+            # URL → 抓取页面内容
+            content = fetch_url_content(item, verbose=verbose)
+            raw_items.append({
+                "title": item.split("/")[-1][:60] or item[:60],
+                "url": item,
+                "snippet": content,
+                "source": "user_url",
+            })
+        else:
+            # 纯文本 → 直接作为内容
+            raw_items.append({
+                "title": item[:60],
+                "url": "",
+                "snippet": item,
+                "source": "user_text",
+            })
+
+    if verbose:
+        for i, item in enumerate(raw_items):
+            print(f"   [{i+1}] {item['title'][:60]}... ({len(item['snippet'])} 字符)")
+
+    # ── AI 提取 ──
+    print(f"\n🤖 AI 提取结构化字段... ({len(raw_items)} 条)")
+    promos = extract_with_claude(raw_items, verbose=verbose)
+
+    if not promos:
+        print("   ⚠️ 未能提取到有效活动")
+        return
+
+    print(f"   ✅ 提取到 {len(promos)} 个活动")
+    if verbose:
+        for p in promos:
+            print(f"   🏦 {p['bank']} | {p['title']} | {p['benefit']} | 可信度:{p['confidence']}")
+
+    # ── 文案审核 ──
+    if no_review:
+        print("\n🔍 文案审核...（--no-review，已跳过）")
+        for p in promos:
+            p["review_result"] = "skipped"
+    else:
+        print(f"\n🔍 文案审核...")
+        promos = review_copy(promos, verbose=verbose)
+
+    # ── 去重 ──
+    new_promos, dup_count = dedup_promos(promos, vault_path, verbose=verbose)
+
+    if not new_promos:
+        print(f"   ⚠️ 全部重复 ({dup_count} 条)，无新内容")
+        return
+
+    # ── 写入笔记 ──
+    print(f"\n📝 写入 Obsidian 笔记...")
+    written = 0
+    for p in new_promos:
+        if write_note(p, vault_path, dry_run=False):
+            written += 1
+
+    print(f"   ✅ 成功写入 {written}/{len(new_promos)} 篇笔记")
+
+    # ── 出图 ──
+    if generate_cards and written > 0:
+        print(f"\n🎨 生成宣传卡片...")
+        batch_generate_cards(vault_path)
+    elif generate_cards:
+        print(f"\n🎨 跳过出图（无新笔记）")
+
+    # ── 汇总 ──
+    print()
+    print("=" * 50)
+    print(f"📊 汇总: 输入 {len(lines)} → 提取 {len(promos)} → 新活动 {len(new_promos)}")
+    if generate_cards and written > 0:
+        print(f"🎨 {written} 篇笔记已出图")
+    print("=" * 50)
 
 def load_from_file(filepath):
     """
@@ -992,6 +1180,7 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 示例:
+  python collect_promo.py -i                           # 交互模式：粘贴链接/文案
   python collect_promo.py                              # 全量采集（需网络 + API Key）
   python collect_promo.py --bank 建设银行               # 只搜指定银行
   python collect_promo.py --query "云闪付 生活缴费"      # 自定义搜索
@@ -1002,6 +1191,7 @@ def main():
   python collect_promo.py --save-search cache.json     # 仅搜索并保存（供 CI 回退用）
         """,
     )
+    parser.add_argument("-i", "--interactive", action="store_true", help="交互模式：粘贴链接/文案 → 提取+审核+出图")
     parser.add_argument("-b", "--bank", help="指定银行名（如'建设银行'）")
     parser.add_argument("-q", "--query", help="自定义搜索关键词")
     parser.add_argument("-n", "--dry-run", action="store_true", help="预览模式，不写入文件")
@@ -1016,6 +1206,16 @@ def main():
 
     args = parser.parse_args()
     vault_path = args.vault or VAULT_PATH
+
+    # ── 交互模式：直接路由 ──
+    if args.interactive:
+        interactive_collect(
+            vault_path=vault_path,
+            generate_cards=args.generate_cards,
+            no_review=args.no_review,
+            verbose=args.verbose,
+        )
+        return
 
     print("=" * 50)
     print("🏦 银行优惠活动 · 自动采集器")
