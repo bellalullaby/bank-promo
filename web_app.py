@@ -4,19 +4,20 @@
 本地启动: python web_app.py
 浏览器打开: http://localhost:5000
 """
-import sys, os, io, json, re, time, datetime
-sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
+import sys, os, json, re, time, datetime
 
 from flask import Flask, request, jsonify, render_template_string
 app = Flask(__name__)
 
-# 把父目录加入路径，复用 collect_promo 的核心函数
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from collect_promo import (
-    fetch_url_content, extract_with_claude, review_copy,
-    deduplicate, write_note, trigger_card_generation,
-    VAULT_PATH,
-)
+# 延迟导入 collect_promo（需要时加载）
+_collect_promo = None
+def _get_collect():
+    global _collect_promo
+    if _collect_promo is None:
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        import collect_promo
+        _collect_promo = collect_promo
+    return _collect_promo
 
 # ── HTML 模板 ──
 HTML = r"""
@@ -236,6 +237,8 @@ def collect():
     if not user_input:
         return jsonify({"error": "请输入活动链接或文案", "input_count": 0})
 
+    cp = _get_collect()
+
     # 解析输入
     lines = [l.strip() for l in user_input.split("\n") if l.strip()]
     if not lines:
@@ -246,7 +249,7 @@ def collect():
     spa_count = 0
     for item in lines:
         if item.startswith("http://") or item.startswith("https://"):
-            content = fetch_url_content(item, verbose=False)
+            content = cp.fetch_url_content(item, verbose=False)
             raw_items.append({
                 "title": item.split("/")[-1][:60] or item[:60],
                 "url": item,
@@ -271,7 +274,7 @@ def collect():
         })
 
     # AI 提取
-    promos = extract_with_claude(raw_items, verbose=False)
+    promos = cp.extract_with_claude(raw_items, verbose=False)
     if not promos:
         return jsonify({
             "input_count": len(lines),
@@ -284,22 +287,22 @@ def collect():
         for p in promos:
             p["review_result"] = "skipped"
     else:
-        promos, review_stats = review_copy(promos, verbose=False)
+        promos, review_stats = cp.review_copy(promos, verbose=False)
 
     # 去重
-    vault_path = os.environ.get("BANK_PROMO_VAULT", VAULT_PATH)
-    new_promos, dup_count = deduplicate(promos, vault_path)
+    vault_path = os.environ.get("BANK_PROMO_VAULT", cp.VAULT_PATH)
+    new_promos, dup_count = cp.deduplicate(promos, vault_path)
 
     # 写入笔记
     note_count = 0
     for p in new_promos:
-        if write_note(p, vault_path, verbose=False):
+        if cp.write_note(p, vault_path, verbose=False):
             note_count += 1
 
     # 出图
     card_count = 0
     if generate_cards and note_count > 0:
-        trigger_card_generation(vault_path)
+        cp.trigger_card_generation(vault_path)
         # 统计生成的卡片
         for p in new_promos:
             safe_bank = re.sub(r'[\\/*?:"<>|]', "", p.get("bank", "")[:8])
@@ -334,7 +337,8 @@ def collect():
 from flask import send_file
 @app.route("/cards/<path:filename>")
 def serve_card(filename):
-    vault_path = os.environ.get("BANK_PROMO_VAULT", VAULT_PATH)
+    cp = _get_collect()
+    vault_path = os.environ.get("BANK_PROMO_VAULT", cp.VAULT_PATH)
     filepath = os.path.join(vault_path, filename)
     if os.path.exists(filepath):
         return send_file(filepath, mimetype="image/png")
@@ -342,7 +346,8 @@ def serve_card(filename):
 
 
 if __name__ == "__main__":
-    vault = os.environ.get("BANK_PROMO_VAULT", VAULT_PATH)
+    cp = _get_collect()
+    vault = os.environ.get("BANK_PROMO_VAULT", cp.VAULT_PATH)
     print("=" * 55)
     print("🏦 银行优惠 · Web 采集界面")
     print("=" * 55)

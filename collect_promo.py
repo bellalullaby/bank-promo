@@ -23,11 +23,7 @@ import argparse
 import subprocess
 import datetime
 
-# 确保中文输出不乱码
-sys.stdout = _io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
-
-# ═══════════════════════════════════════════════════
-# 常量
+# 注意：stdout 重定向移到 main() 中，避免 import 时影响其他模块
 # ═══════════════════════════════════════════════════
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -1202,6 +1198,9 @@ def trigger_card_generation(vault_path=None):
 # ═══════════════════════════════════════════════════
 
 def main():
+    # 保证中文输出不乱码（仅 CLI 模式启用，import 时不触发）
+    sys.stdout = _io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
+
     parser = argparse.ArgumentParser(
         description="🏦 银行优惠活动 · 自动采集器",
         formatter_class=argparse.RawDescriptionHelpFormatter,
