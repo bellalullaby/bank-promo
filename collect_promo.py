@@ -544,7 +544,7 @@ def interactive_collect(vault_path, generate_cards, no_review, verbose):
         promos = review_copy(promos, verbose=verbose)
 
     # ── 去重 ──
-    new_promos, dup_count = dedup_promos(promos, vault_path, verbose=verbose)
+    new_promos, dup_count = deduplicate(promos, vault_path, verbose=verbose)
 
     if not new_promos:
         print(f"   ⚠️ 全部重复 ({dup_count} 条)，无新内容")
@@ -562,7 +562,7 @@ def interactive_collect(vault_path, generate_cards, no_review, verbose):
     # ── 出图 ──
     if generate_cards and written > 0:
         print(f"\n🎨 生成宣传卡片...")
-        batch_generate_cards(vault_path)
+        trigger_card_generation(vault_path)
     elif generate_cards:
         print(f"\n🎨 跳过出图（无新笔记）")
 
