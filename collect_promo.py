@@ -1141,8 +1141,9 @@ tags:
 - **可信度**：{confidence}
 """
 
-    # 写入文件
-    filepath = os.path.join(vault_path, f"{safe_title}.md")
+    # 写入文件（含银行名防同名冲突）
+    safe_bank = re.sub(r'[\\/*?:"<>|]', "", bank[:8])
+    filepath = os.path.join(vault_path, f"{safe_bank}-{safe_title}.md")
 
     try:
         # 确保目录存在
