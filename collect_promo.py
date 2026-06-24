@@ -426,6 +426,14 @@ def fetch_url_content(url, verbose=False):
         if len(text) > 6000:
             text = text[:6000] + "\n...[内容已截断]"
 
+        # SPA 检测：纯文本太短说明是 JS 渲染页面
+        if len(text) < 100:
+            text = (
+                f"[此页面为 SPA 单页应用，HTML 中无实际内容。]\n"
+                f"请从浏览器中复制活动文案文字后重新粘贴。\n"
+                f"原始链接: {url}"
+            )
+
         if verbose:
             print(f"      ✅ 提取纯文本: {len(text)} 字符")
 
@@ -494,6 +502,24 @@ def interactive_collect(vault_path, generate_cards, no_review, verbose):
     if verbose:
         for i, item in enumerate(raw_items):
             print(f"   [{i+1}] {item['title'][:60]}... ({len(item['snippet'])} 字符)")
+
+    # 检查是否有 SPA 页面（内容太短），提示用户改贴文字
+    spa_items = [it for it in raw_items if len(it["snippet"]) < 100 and it["source"] == "user_url"]
+    good_items = [it for it in raw_items if it not in spa_items]
+
+    if spa_items and not good_items:
+        print("\n   ⚠️ 所有链接均为 SPA 单页应用（云闪付等），HTML 中无实际内容。")
+        print("   💡 请从浏览器中复制活动文案文字，重新运行 -i 后粘贴文字。")
+        return
+
+    if spa_items:
+        print(f"\n   ⚠️ {len(spa_items)} 个链接疑似 SPA 页面（内容太短），已跳过:")
+        for it in spa_items:
+            print(f"      - {it['url'][:80]}")
+        print(f"   💡 建议：从浏览器复制这些页面的文案文字，用 -i 粘贴文字")
+        if not good_items:
+            return
+        raw_items = good_items
 
     # ── AI 提取 ──
     print(f"\n🤖 AI 提取结构化字段... ({len(raw_items)} 条)")
