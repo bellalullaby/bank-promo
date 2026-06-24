@@ -121,9 +121,96 @@ USER_PROMPT_TEMPLATE = """请从以下搜索结果中提取银行优惠活动信
 # 函数 1: 搜索什么值得买
 # ═══════════════════════════════════════════════════
 
+def search_via_bing(keyword, max_results=10, verbose=False):
+    """
+    通过 Bing 搜索 site:smzdm.com 的内容（绕开 smzdm 反爬盾）。
+    Bing 全球可访问，CI 和本地都能用。
+
+    返回:
+        list[dict]: 同 search_smzdm() 格式 {title, url, snippet, source}
+    """
+    results = []
+    proxies = None
+    http_proxy = os.environ.get("HTTP_PROXY") or os.environ.get("http_proxy")
+    https_proxy = os.environ.get("HTTPS_PROXY") or os.environ.get("https_proxy")
+    if http_proxy or https_proxy:
+        proxies = {"http": http_proxy, "https": https_proxy or http_proxy}
+
+    query = f"site:smzdm.com {keyword}"
+
+    try:
+        from bs4 import BeautifulSoup
+        from urllib.parse import quote
+
+        # 优先 curl_cffi，回退 requests
+        try:
+            from curl_cffi import requests as http
+            _use_cffi = True
+        except ImportError:
+            import requests as http
+            _use_cffi = False
+
+        headers = {
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/125.0.0.0 Safari/537.36"
+            ),
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+        }
+
+        url = f"https://www.bing.com/search?q={quote(query)}&setlang=zh-cn"
+        if verbose:
+            print(f"   🔍 Bing 搜索: {query}")
+
+        if _use_cffi:
+            resp = http.get(url, headers=headers, timeout=15, proxies=proxies, impersonate="chrome124")
+        else:
+            resp = http.get(url, headers=headers, timeout=15, proxies=proxies)
+
+        if verbose:
+            print(f"      HTTP {resp.status_code} | 页面大小: {len(resp.text)} 字符")
+
+        if resp.status_code != 200:
+            return results
+
+        soup = BeautifulSoup(resp.text, "html.parser")
+
+        # Bing 搜索结果项
+        for item in soup.select("li.b_algo")[:max_results]:
+            link_el = item.select_one("h2 a")
+            snippet_el = item.select_one(".b_caption p, .b_lineclamp2, .b_algoSlug")
+
+            if link_el:
+                href = link_el.get("href", "")
+                # 只保留 smzdm 链接
+                if "smzdm.com" not in href:
+                    continue
+
+                results.append({
+                    "title": link_el.get_text(strip=True),
+                    "url": href,
+                    "snippet": snippet_el.get_text(strip=True) if snippet_el else "",
+                    "source": "smzdm",
+                })
+
+        if verbose:
+            print(f"      ✅ 从 Bing 提取到 {len(results)} 条 smzdm 链接")
+
+    except Exception as e:
+        if verbose:
+            print(f"      ⚠️ Bing 搜索失败: {type(e).__name__}: {e}")
+
+    return results
+
+
 def search_smzdm(bank=None, query=None, max_results=10, verbose=False):
     """
     从什么值得买搜索银行优惠信息。
+
+    策略：优先通过 Bing 搜 site:smzdm.com（绕过反爬盾），
+    如果 Bing 也失败，回退直接访问 smzdm（可能被拦）。
 
     参数:
         bank: 指定银行名（可选），为空则通用搜索
@@ -134,8 +221,6 @@ def search_smzdm(bank=None, query=None, max_results=10, verbose=False):
     返回:
         list[dict]: 每个 dict 含 title, url, snippet, source
     """
-    results = []
-
     # 确定搜索关键词
     if query:
         keywords = [query]
@@ -144,171 +229,131 @@ def search_smzdm(bank=None, query=None, max_results=10, verbose=False):
     else:
         keywords = SEARCH_KEYWORDS
 
-    # 代理支持（国内用户可在 CI 中配 HTTP_PROXY 访问中文站）
+    all_results = []
+
+    for kw in keywords[:2]:  # 最多搜 2 组关键词
+        # ── 策略 A: Bing 搜索 site:smzdm.com ──
+        bing_results = search_via_bing(kw, max_results=max_results, verbose=verbose)
+        if bing_results:
+            all_results.extend(bing_results)
+            if verbose:
+                print(f"   ✅ Bing 搜到 {len(bing_results)} 条 smzdm 结果")
+            break  # 找到就停
+
+        # ── 策略 B: 回退直接访问 smzdm ──
+        if verbose:
+            print(f"   🔄 Bing 无结果，回退直连 smzdm...")
+        direct_results = _search_smzdm_direct(kw, max_results=max_results, verbose=verbose)
+        if direct_results:
+            all_results.extend(direct_results)
+            break
+
+    # 去重（按 url）
+    seen = set()
+    unique = []
+    for r in all_results:
+        if r["url"] not in seen:
+            seen.add(r["url"])
+            unique.append(r)
+
+    if verbose:
+        print(f"   📊 搜索汇总: {len(all_results)} 条原始 → {len(unique)} 条去重后")
+
+    return unique[:max_results]
+
+
+def _search_smzdm_direct(keyword, max_results=10, verbose=False):
+    """
+    【回退策略】直接访问 smzdm 搜索页（可能被反爬盾拦截）。
+    """
+    results = []
+
     proxies = None
     http_proxy = os.environ.get("HTTP_PROXY") or os.environ.get("http_proxy")
     https_proxy = os.environ.get("HTTPS_PROXY") or os.environ.get("https_proxy")
     if http_proxy or https_proxy:
         proxies = {"http": http_proxy, "https": https_proxy or http_proxy}
-        if verbose:
-            print(f"   🌐 使用代理: {https_proxy or http_proxy}")
 
     try:
         from bs4 import BeautifulSoup
         from urllib.parse import quote
 
-        # 优先使用 curl_cffi（伪装 Chrome TLS 指纹，绕反爬）
-        http_lib = None
         try:
-            from curl_cffi import requests as curl_requests
-            http_lib = "curl_cffi"
-            if verbose:
-                print("   🔐 使用 curl_cffi（Chrome TLS 指纹伪装）")
+            from curl_cffi import requests as http
+            _use_cffi = True
         except ImportError:
-            import requests
-            http_lib = "requests"
-            if verbose:
-                print("   ⚠️ curl_cffi 未安装，使用标准 requests（可能被反爬拦截）")
-                print("   💡 pip install curl_cffi 可绕过 TLS 指纹检测")
+            import requests as http
+            _use_cffi = False
 
-        # 构建请求头
         headers = {
             "User-Agent": (
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
                 "AppleWebKit/537.36 (KHTML, like Gecko) "
                 "Chrome/125.0.0.0 Safari/537.36"
             ),
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
             "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
-            "Accept-Encoding": "gzip, deflate, br",
-            "Cache-Control": "max-age=0",
-            "Connection": "keep-alive",
-            "Upgrade-Insecure-Requests": "1",
         }
 
-        # curl_cffi 用 Session 保持 cookie
-        if http_lib == "curl_cffi":
-            session = curl_requests.Session()
-            session.headers.update(headers)
-        else:
-            session = requests.Session()
-            session.headers.update(headers)
+        url = f"https://search.smzdm.com/?c=post&s={quote(keyword)}&order=time&p=1"
 
-        for kw in keywords[:2]:  # 最多搜 2 组关键词，避免太慢
-            for attempt in range(3):  # 最多重试 3 次
-                try:
-                    # smzdm 搜索 URL（编码关键词）
-                    url = f"https://search.smzdm.com/?c=post&s={quote(kw)}&order=time&p=1"
+        for attempt in range(2):
+            try:
+                if verbose:
+                    print(f"   🔍 smzdm 直搜: {keyword} (尝试 {attempt+1}/2)")
+
+                if _use_cffi:
+                    resp = http.get(url, headers=headers, timeout=20, proxies=proxies, impersonate="chrome124")
+                else:
+                    resp = http.get(url, headers=headers, timeout=20, proxies=proxies)
+
+                if verbose:
+                    print(f"      HTTP {resp.status_code} | 页面大小: {len(resp.text)} 字符")
+
+                if resp.status_code != 200 or len(resp.text) < 500:
                     if verbose:
-                        print(f"   🔍 搜索: {kw} (尝试 {attempt+1}/3)")
-
-                    # curl_cffi: 伪装 Chrome 124 的 TLS 指纹
-                    if http_lib == "curl_cffi":
-                        resp = session.get(
-                            url, timeout=20, proxies=proxies,
-                            impersonate="chrome124",
-                        )
-                    else:
-                        resp = session.get(url, timeout=20, proxies=proxies)
-
-                    if verbose:
-                        print(f"      HTTP {resp.status_code} | 页面大小: {len(resp.text)} 字符")
-
-                    resp.raise_for_status()
-
-                    # 检查是否被拦截（常见反爬页面特征）
-                    if len(resp.text) < 500 or "请进行验证" in resp.text or "cf-browser-verify" in resp.text:
-                        if verbose:
-                            print(f"      ⚠️ 疑似反爬拦截，{'重试' if attempt < 2 else '放弃'}...")
-                        if attempt < 2:
-                            time.sleep(2 * (attempt + 1))
-                            continue
-                        break
-
-                    soup = BeautifulSoup(resp.text, "html.parser")
-
-                    # 多套 CSS 选择器（兼容 smzdm 改版）
-                    selectors = [
-                        ".feed-row-wide", ".feed-row",          # 经典 PC 版
-                        ".search-result-item",                   # 备用
-                        "li[class*='feed']",                     # 模糊匹配
-                        ".card-group-list .card",                # 新版
-                    ]
-                    items = []
-                    for sel in selectors:
-                        items = soup.select(sel)
-                        if items:
-                            if verbose:
-                                print(f"      ✅ 选择器 '{sel}' 匹配到 {len(items)} 条")
-                            break
-
-                    if verbose and not items:
-                        print(f"      ⚠️ 无匹配结果（所有选择器均无结果）")
-
-                    for item in items[:max_results]:
-                        link_el = item.select_one("a[href]")
-                        title_el = (
-                            item.select_one(".feed-block-title")
-                            or item.select_one(".title")
-                            or item.select_one("h3 a")
-                            or item.select_one("a[title]")
-                            or link_el
-                        )
-                        snippet_el = item.select_one(
-                            ".feed-block-descripe, .feed-block-extras, .desc, .summary, p"
-                        )
-
-                        if link_el and title_el:
-                            href = link_el.get("href", "")
-                            if not href.startswith("http"):
-                                href = "https:" + href if href.startswith("//") else "https://www.smzdm.com" + href
-
-                            results.append({
-                                "title": title_el.get_text(strip=True),
-                                "url": href,
-                                "snippet": snippet_el.get_text(strip=True) if snippet_el else "",
-                                "source": "smzdm",
-                            })
-
-                    if results:
-                        break  # 找到了就不搜下一组关键词
-                    elif attempt < 2:
-                        time.sleep(2 * (attempt + 1))
+                        print(f"      ⚠️ 疑似拦截，{'重试' if attempt < 1 else '放弃'}...")
+                    if attempt < 1:
+                        time.sleep(2)
                         continue
-
-                except requests.exceptions.Timeout as e:
-                    if verbose:
-                        print(f"      ⚠️ 超时: {e}")
-                    if attempt < 2:
-                        time.sleep(2 * (attempt + 1))
-                    continue
-                except requests.exceptions.ConnectionError as e:
-                    if verbose:
-                        print(f"      ⚠️ 连接失败: {e}")
-                    break  # 连接失败不重试，直接试下一个关键词
-                except Exception as e:
-                    if verbose:
-                        print(f"      ⚠️ 搜索异常: {type(e).__name__}: {e}")
                     break
 
-            if results:
-                break  # 找到结果就不搜下一组关键词
+                soup = BeautifulSoup(resp.text, "html.parser")
+                selectors = [".feed-row-wide", ".feed-row", "li[class*='feed']"]
+                items = []
+                for sel in selectors:
+                    items = soup.select(sel)
+                    if items:
+                        break
+
+                for item in items[:max_results]:
+                    link_el = item.select_one("a[href]")
+                    title_el = item.select_one(".feed-block-title") or link_el
+                    snippet_el = item.select_one(".feed-block-descripe, .feed-block-extras")
+
+                    if link_el and title_el:
+                        href = link_el.get("href", "")
+                        if not href.startswith("http"):
+                            href = "https:" + href if href.startswith("//") else "https://www.smzdm.com" + href
+                        results.append({
+                            "title": title_el.get_text(strip=True),
+                            "url": href,
+                            "snippet": snippet_el.get_text(strip=True) if snippet_el else "",
+                            "source": "smzdm",
+                        })
+
+                if results:
+                    break
+
+            except Exception as e:
+                if verbose:
+                    print(f"      ⚠️ 异常: {type(e).__name__}: {e}")
+                break
 
     except ImportError:
-        print("   ⚠️ requests/bs4 未安装，无法在线搜索")
+        pass
 
-    # 去重（按 url）
-    seen = set()
-    unique = []
-    for r in results:
-        if r["url"] not in seen:
-            seen.add(r["url"])
-            unique.append(r)
-
-    if verbose:
-        print(f"   📊 搜索汇总: {len(results)} 条原始 → {len(unique)} 条去重后")
-
-    return unique[:max_results]
+    return results
 
 
 # ═══════════════════════════════════════════════════
