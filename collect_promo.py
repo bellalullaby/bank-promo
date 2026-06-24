@@ -31,7 +31,7 @@ sys.stdout = _io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
 # ═══════════════════════════════════════════════════
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-VAULT_PATH = r"F:\CC Tools\酱酱&小克的实验室\银行优惠"
+VAULT_PATH = os.environ.get("BANK_PROMO_VAULT", r"F:\CC Tools\酱酱&小克的实验室\银行优惠")
 TEMPLATE_PATH = os.path.join(VAULT_PATH, "模板", "活动卡片模板.md")
 
 # 银行别名映射（复用 generate_card.py 的逻辑）

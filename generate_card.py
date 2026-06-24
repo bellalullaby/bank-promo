@@ -70,7 +70,7 @@ FONT_MEDIUM = os.path.join(FONT_DIR, "HarmonyOS_SansSC_Medium.ttf")
 FONT_REGULAR = os.path.join(FONT_DIR, "HarmonyOS_SansSC_Regular.ttf")
 
 # Obsidian vault 路径
-OBSIDIAN_VAULT = r"F:\CC Tools\酱酱&小克的实验室\银行优惠"
+OBSIDIAN_VAULT = os.environ.get("BANK_PROMO_VAULT", r"F:\CC Tools\酱酱&小克的实验室\银行优惠")
 
 # ═══════════════════════════════════════════════════
 # 卡片尺寸 & 布局参数

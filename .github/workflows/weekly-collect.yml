@@ -1,0 +1,131 @@
+name: 🏦 银行优惠每周采集
+
+on:
+  schedule:
+    # 每周一 UTC 00:00（北京时间 08:00）
+    - cron: '7 0 * * 1'
+  workflow_dispatch:
+    # 手动触发：支持指定银行名
+    inputs:
+      bank:
+        description: '指定银行（留空=全部银行）'
+        required: false
+        type: string
+      query:
+        description: '自定义搜索关键词'
+        required: false
+        type: string
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    permissions:
+      contents: write  # 允许 push 回仓库
+
+    steps:
+      - name: 📥 检出仓库
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 🐍 安装 Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: 💾 缓存字体（HarmonyOS Sans SC）
+        id: cache-fonts
+        uses: actions/cache@v4
+        with:
+          path: fonts/
+          key: harmonyos-sans-v2
+
+      - name: 🔤 下载字体（首次 ~90MB）
+        if: steps.cache-fonts.outputs.cache-hit != 'true'
+        run: |
+          echo "📦 从华为开发者官网下载 HarmonyOS Sans SC..."
+          wget -q --show-progress \
+            "https://developer.huawei.com/images/download/next/HarmonyOS-Sans-v2.zip" \
+            -O /tmp/harmonyos.zip
+          echo "📂 解压..."
+          unzip -q /tmp/harmonyos.zip -d /tmp/harmonyos
+          echo "🔍 查找 Bold/Medium/Regular 字体文件..."
+          mkdir -p "fonts/HarmonyOS Sans/HarmonyOS_SansSC"
+          find /tmp/harmonyos -name "HarmonyOS_SansSC_Bold.ttf" \
+            -exec cp {} "fonts/HarmonyOS Sans/HarmonyOS_SansSC/" \; \
+            -quit
+          find /tmp/harmonyos -name "HarmonyOS_SansSC_Medium.ttf" \
+            -exec cp {} "fonts/HarmonyOS Sans/HarmonyOS_SansSC/" \; \
+            -quit
+          find /tmp/harmonyos -name "HarmonyOS_SansSC_Regular.ttf" \
+            -exec cp {} "fonts/HarmonyOS Sans/HarmonyOS_SansSC/" \; \
+            -quit
+          echo "✅ 字体就绪:"
+          ls -lh "fonts/HarmonyOS Sans/HarmonyOS_SansSC/"
+          rm /tmp/harmonyos.zip
+          rm -rf /tmp/harmonyos
+
+      - name: 📦 安装 Python 依赖
+        run: |
+          pip install -r requirements.txt
+          pip install Pillow
+
+      - name: 🏃 运行采集流水线
+        env:
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          BANK_PROMO_VAULT: ./output
+        run: |
+          FLAGS="-g --verbose"
+          if [ -n "${{ inputs.bank }}" ]; then
+            FLAGS="$FLAGS --bank '${{ inputs.bank }}'"
+          fi
+          if [ -n "${{ inputs.query }}" ]; then
+            FLAGS="$FLAGS --query '${{ inputs.query }}'"
+          fi
+          echo "🏦 运行: python collect_promo.py $FLAGS"
+          python collect_promo.py $FLAGS || {
+            echo "⚠️ 采集流水线出错，检查日志"
+            exit 1
+          }
+
+      - name: 📊 汇总本次采集结果
+        if: always()
+        run: |
+          echo "### 📊 采集结果" >> $GITHUB_STEP_SUMMARY
+          if [ -d "output" ]; then
+            NOTE_COUNT=$(find output -name "*.md" ! -name "活动卡片模板.md" | wc -l)
+            CARD_COUNT=$(find output -name "*.png" | wc -l)
+            echo "- 📝 笔记: $NOTE_COUNT 篇" >> $GITHUB_STEP_SUMMARY
+            echo "- 🎨 卡片: $CARD_COUNT 张" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "**活动列表:**" >> $GITHUB_STEP_SUMMARY
+            for f in output/*.md; do
+              [ -f "$f" ] || continue
+              TITLE=$(head -5 "$f" | grep "title:" | cut -d: -f2- | xargs)
+              BANK=$(head -5 "$f" | grep "bank:" | cut -d: -f2- | xargs)
+              echo "- 🏦 $BANK | $TITLE" >> $GITHUB_STEP_SUMMARY
+            done
+          else
+            echo "⚠️ 未生成 output 目录" >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: 🐙 提交并推送变更
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          # 拉取远程最新（防止冲突）
+          git pull --rebase origin master || true
+
+          git add output/ || true
+
+          if git diff --staged --quiet; then
+            echo "📭 无新内容，跳过提交"
+          else
+            WEEK=$(date +"%m/%d")
+            git commit -m "📦 ${WEEK} 银行优惠自动采集"
+            git push origin master
+            echo "✅ 已推送到 GitHub"
+          fi
