@@ -154,12 +154,25 @@ def search_smzdm(bank=None, query=None, max_results=10, verbose=False):
             print(f"   🌐 使用代理: {https_proxy or http_proxy}")
 
     try:
-        import requests
         from bs4 import BeautifulSoup
+        from urllib.parse import quote
 
-        # 使用 Session 保持连接 + 完整浏览器头
-        session = requests.Session()
-        session.headers.update({
+        # 优先使用 curl_cffi（伪装 Chrome TLS 指纹，绕反爬）
+        http_lib = None
+        try:
+            from curl_cffi import requests as curl_requests
+            http_lib = "curl_cffi"
+            if verbose:
+                print("   🔐 使用 curl_cffi（Chrome TLS 指纹伪装）")
+        except ImportError:
+            import requests
+            http_lib = "requests"
+            if verbose:
+                print("   ⚠️ curl_cffi 未安装，使用标准 requests（可能被反爬拦截）")
+                print("   💡 pip install curl_cffi 可绕过 TLS 指纹检测")
+
+        # 构建请求头
+        headers = {
             "User-Agent": (
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
                 "AppleWebKit/537.36 (KHTML, like Gecko) "
@@ -171,18 +184,33 @@ def search_smzdm(bank=None, query=None, max_results=10, verbose=False):
             "Cache-Control": "max-age=0",
             "Connection": "keep-alive",
             "Upgrade-Insecure-Requests": "1",
-        })
+        }
+
+        # curl_cffi 用 Session 保持 cookie
+        if http_lib == "curl_cffi":
+            session = curl_requests.Session()
+            session.headers.update(headers)
+        else:
+            session = requests.Session()
+            session.headers.update(headers)
 
         for kw in keywords[:2]:  # 最多搜 2 组关键词，避免太慢
             for attempt in range(3):  # 最多重试 3 次
                 try:
                     # smzdm 搜索 URL（编码关键词）
-                    from urllib.parse import quote
                     url = f"https://search.smzdm.com/?c=post&s={quote(kw)}&order=time&p=1"
                     if verbose:
                         print(f"   🔍 搜索: {kw} (尝试 {attempt+1}/3)")
 
-                    resp = session.get(url, timeout=20, proxies=proxies)
+                    # curl_cffi: 伪装 Chrome 124 的 TLS 指纹
+                    if http_lib == "curl_cffi":
+                        resp = session.get(
+                            url, timeout=20, proxies=proxies,
+                            impersonate="chrome124",
+                        )
+                    else:
+                        resp = session.get(url, timeout=20, proxies=proxies)
+
                     if verbose:
                         print(f"      HTTP {resp.status_code} | 页面大小: {len(resp.text)} 字符")
 
