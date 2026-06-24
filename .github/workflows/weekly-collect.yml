@@ -77,7 +77,7 @@ jobs:
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
           BANK_PROMO_VAULT: ./output
         run: |
-          FLAGS="-g --verbose"
+          FLAGS="-g --verbose --search-cache output/search_cache.json"
           if [ -n "${{ inputs.bank }}" ]; then
             FLAGS="$FLAGS --bank '${{ inputs.bank }}'"
           fi
@@ -85,10 +85,8 @@ jobs:
             FLAGS="$FLAGS --query '${{ inputs.query }}'"
           fi
           echo "🏦 运行: python collect_promo.py $FLAGS"
-          python collect_promo.py $FLAGS || {
-            echo "⚠️ 采集流水线出错，检查日志"
-            exit 1
-          }
+          python collect_promo.py $FLAGS
+          echo "🏁 采集流水线完成（exit code: $?）"
 
       - name: 📊 汇总本次采集结果
         if: always()

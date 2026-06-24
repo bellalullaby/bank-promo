@@ -121,7 +121,7 @@ USER_PROMPT_TEMPLATE = """请从以下搜索结果中提取银行优惠活动信
 # 函数 1: 搜索什么值得买
 # ═══════════════════════════════════════════════════
 
-def search_smzdm(bank=None, query=None, max_results=10):
+def search_smzdm(bank=None, query=None, max_results=10, verbose=False):
     """
     从什么值得买搜索银行优惠信息。
 
@@ -129,6 +129,7 @@ def search_smzdm(bank=None, query=None, max_results=10):
         bank: 指定银行名（可选），为空则通用搜索
         query: 自定义关键词（可选）
         max_results: 最大返回数
+        verbose: 输出诊断信息
 
     返回:
         list[dict]: 每个 dict 含 title, url, snippet, source
@@ -143,46 +144,127 @@ def search_smzdm(bank=None, query=None, max_results=10):
     else:
         keywords = SEARCH_KEYWORDS
 
+    # 代理支持（国内用户可在 CI 中配 HTTP_PROXY 访问中文站）
+    proxies = None
+    http_proxy = os.environ.get("HTTP_PROXY") or os.environ.get("http_proxy")
+    https_proxy = os.environ.get("HTTPS_PROXY") or os.environ.get("https_proxy")
+    if http_proxy or https_proxy:
+        proxies = {"http": http_proxy, "https": https_proxy or http_proxy}
+        if verbose:
+            print(f"   🌐 使用代理: {https_proxy or http_proxy}")
+
     try:
         import requests
         from bs4 import BeautifulSoup
 
+        # 使用 Session 保持连接 + 完整浏览器头
+        session = requests.Session()
+        session.headers.update({
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/125.0.0.0 Safari/537.36"
+            ),
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+            "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+            "Accept-Encoding": "gzip, deflate, br",
+            "Cache-Control": "max-age=0",
+            "Connection": "keep-alive",
+            "Upgrade-Insecure-Requests": "1",
+        })
+
         for kw in keywords[:2]:  # 最多搜 2 组关键词，避免太慢
-            try:
-                url = f"https://search.smzdm.com/?c=post&s={kw}&order=time"
-                headers = {
-                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-                    "Accept": "text/html,application/xhtml+xml",
-                }
-                resp = requests.get(url, headers=headers, timeout=15)
-                resp.raise_for_status()
+            for attempt in range(3):  # 最多重试 3 次
+                try:
+                    # smzdm 搜索 URL（编码关键词）
+                    from urllib.parse import quote
+                    url = f"https://search.smzdm.com/?c=post&s={quote(kw)}&order=time&p=1"
+                    if verbose:
+                        print(f"   🔍 搜索: {kw} (尝试 {attempt+1}/3)")
 
-                soup = BeautifulSoup(resp.text, "html.parser")
-                items = soup.select(".feed-row-wide, .feed-row")  # smzdm 搜索结果列表
+                    resp = session.get(url, timeout=20, proxies=proxies)
+                    if verbose:
+                        print(f"      HTTP {resp.status_code} | 页面大小: {len(resp.text)} 字符")
 
-                for item in items[:max_results]:
-                    link_el = item.select_one("a[href]")
-                    title_el = item.select_one(".feed-block-title") or link_el
-                    snippet_el = item.select_one(".feed-block-descripe, .feed-block-extras")
+                    resp.raise_for_status()
 
-                    if link_el and title_el:
-                        href = link_el.get("href", "")
-                        if not href.startswith("http"):
-                            href = "https:" + href if href.startswith("//") else "https://www.smzdm.com" + href
+                    # 检查是否被拦截（常见反爬页面特征）
+                    if len(resp.text) < 500 or "请进行验证" in resp.text or "cf-browser-verify" in resp.text:
+                        if verbose:
+                            print(f"      ⚠️ 疑似反爬拦截，{'重试' if attempt < 2 else '放弃'}...")
+                        if attempt < 2:
+                            time.sleep(2 * (attempt + 1))
+                            continue
+                        break
 
-                        results.append({
-                            "title": title_el.get_text(strip=True),
-                            "url": href,
-                            "snippet": snippet_el.get_text(strip=True) if snippet_el else "",
-                            "source": "smzdm",
-                        })
+                    soup = BeautifulSoup(resp.text, "html.parser")
 
-                if results:
-                    break  # 找到了就不继续搜下一组关键词
+                    # 多套 CSS 选择器（兼容 smzdm 改版）
+                    selectors = [
+                        ".feed-row-wide", ".feed-row",          # 经典 PC 版
+                        ".search-result-item",                   # 备用
+                        "li[class*='feed']",                     # 模糊匹配
+                        ".card-group-list .card",                # 新版
+                    ]
+                    items = []
+                    for sel in selectors:
+                        items = soup.select(sel)
+                        if items:
+                            if verbose:
+                                print(f"      ✅ 选择器 '{sel}' 匹配到 {len(items)} 条")
+                            break
 
-            except Exception as e:
-                print(f"   ⚠️ 关键词 '{kw}' 搜索失败: {e}")
-                continue
+                    if verbose and not items:
+                        print(f"      ⚠️ 无匹配结果（所有选择器均无结果）")
+
+                    for item in items[:max_results]:
+                        link_el = item.select_one("a[href]")
+                        title_el = (
+                            item.select_one(".feed-block-title")
+                            or item.select_one(".title")
+                            or item.select_one("h3 a")
+                            or item.select_one("a[title]")
+                            or link_el
+                        )
+                        snippet_el = item.select_one(
+                            ".feed-block-descripe, .feed-block-extras, .desc, .summary, p"
+                        )
+
+                        if link_el and title_el:
+                            href = link_el.get("href", "")
+                            if not href.startswith("http"):
+                                href = "https:" + href if href.startswith("//") else "https://www.smzdm.com" + href
+
+                            results.append({
+                                "title": title_el.get_text(strip=True),
+                                "url": href,
+                                "snippet": snippet_el.get_text(strip=True) if snippet_el else "",
+                                "source": "smzdm",
+                            })
+
+                    if results:
+                        break  # 找到了就不搜下一组关键词
+                    elif attempt < 2:
+                        time.sleep(2 * (attempt + 1))
+                        continue
+
+                except requests.exceptions.Timeout as e:
+                    if verbose:
+                        print(f"      ⚠️ 超时: {e}")
+                    if attempt < 2:
+                        time.sleep(2 * (attempt + 1))
+                    continue
+                except requests.exceptions.ConnectionError as e:
+                    if verbose:
+                        print(f"      ⚠️ 连接失败: {e}")
+                    break  # 连接失败不重试，直接试下一个关键词
+                except Exception as e:
+                    if verbose:
+                        print(f"      ⚠️ 搜索异常: {type(e).__name__}: {e}")
+                    break
+
+            if results:
+                break  # 找到结果就不搜下一组关键词
 
     except ImportError:
         print("   ⚠️ requests/bs4 未安装，无法在线搜索")
@@ -194,6 +276,9 @@ def search_smzdm(bank=None, query=None, max_results=10):
         if r["url"] not in seen:
             seen.add(r["url"])
             unique.append(r)
+
+    if verbose:
+        print(f"   📊 搜索汇总: {len(results)} 条原始 → {len(unique)} 条去重后")
 
     return unique[:max_results]
 
@@ -836,11 +921,12 @@ def main():
 示例:
   python collect_promo.py                              # 全量采集（需网络 + API Key）
   python collect_promo.py --bank 建设银行               # 只搜指定银行
-  python collect_promo.py --query "云闪付 生活缴费"     # 自定义搜索
+  python collect_promo.py --query "云闪付 生活缴费"      # 自定义搜索
   python collect_promo.py --dry-run                    # 预览，不写入文件
   python collect_promo.py -g                           # 采集 + 审核 + 自动出图
   python collect_promo.py --no-review -g               # 跳过审核，直接出图
   python collect_promo.py --from-file test.json -g     # 离线测试 + 出图
+  python collect_promo.py --save-search cache.json     # 仅搜索并保存（供 CI 回退用）
         """,
     )
     parser.add_argument("-b", "--bank", help="指定银行名（如'建设银行'）")
@@ -852,6 +938,8 @@ def main():
     parser.add_argument("-v", "--verbose", action="store_true", help="详细日志")
     parser.add_argument("--vault", help="Obsidian vault 路径")
     parser.add_argument("--max-results", type=int, default=10, help="最大搜索结果数（默认10）")
+    parser.add_argument("--save-search", help="仅搜索并保存结果到 JSON 文件（供 CI 使用）")
+    parser.add_argument("--search-cache", help="CI 回退：当在线搜索失败时，从此 JSON 文件加载")
 
     args = parser.parse_args()
     vault_path = args.vault or VAULT_PATH
@@ -872,18 +960,55 @@ def main():
         print(f"   ✅ 加载 {len(raw_items)} 条数据")
         if is_extracted:
             print("   💡 检测到预提取数据，跳过 AI 提取步骤")
+    elif args.save_search:
+        # 仅搜索模式：搜索 → 保存 JSON → 退出
+        is_extracted = False
+        raw_items = search_smzdm(
+            bank=args.bank,
+            query=args.query,
+            max_results=args.max_results,
+            verbose=True,
+        )
+        if not raw_items:
+            print("   ⚠️ 搜索无结果，未保存")
+            return
+        with open(args.save_search, "w", encoding="utf-8") as f:
+            json.dump(raw_items, f, ensure_ascii=False, indent=2)
+        print(f"   💾 搜索结果已保存: {args.save_search} ({len(raw_items)} 条)")
+        print("   💡 提交此文件到仓库后，CI 在线搜索失败时可回退使用")
+        return
     else:
         is_extracted = False
         raw_items = search_smzdm(
             bank=args.bank,
             query=args.query,
             max_results=args.max_results,
+            verbose=args.verbose,
         )
+        # 在线搜索失败 → 尝试缓存回退
         if not raw_items:
-            print("   ⚠️ 搜索无结果（可能需要手动检查网络或 smzdm 是否可访问）")
-            print("   💡 提示：用 --from-file 加载本地测试数据")
-            return
-        print(f"   ✅ 搜索到 {len(raw_items)} 条结果")
+            cache_file = args.search_cache or os.path.join(
+                os.path.dirname(VAULT_PATH) if os.path.isabs(VAULT_PATH) else ".",
+                "output", "search_cache.json"
+            )
+            # 也尝试仓库根目录
+            repo_cache = os.path.join(SCRIPT_DIR, "output", "search_cache.json")
+            for cf in [args.search_cache, repo_cache]:
+                if cf and os.path.exists(cf):
+                    print(f"   🔄 在线搜索无结果，尝试缓存回退: {cf}")
+                    raw_items, _ = load_from_file(cf)
+                    if raw_items:
+                        print(f"   ✅ 从缓存加载 {len(raw_items)} 条历史搜索数据")
+                        break
+            if not raw_items:
+                print("   ⚠️ 搜索无结果（可能需要手动检查网络或 smzdm 是否可访问）")
+                print("   💡 提示：")
+                print("      1. 本地运行 --save-search output/search_cache.json 保存搜索缓存")
+                print("      2. 提交到仓库后，CI 将自动使用缓存")
+                print("      3. 或用 --from-file 加载本地测试数据")
+                return
+        else:
+            print(f"   ✅ 搜索到 {len(raw_items)} 条结果")
 
     if args.verbose:
         for i, item in enumerate(raw_items):
