@@ -541,7 +541,7 @@ def interactive_collect(vault_path, generate_cards, no_review, verbose):
             p["review_result"] = "skipped"
     else:
         print(f"\n🔍 文案审核...")
-        promos = review_copy(promos, verbose=verbose)
+        promos, review_stats = review_copy(promos, verbose=verbose)
 
     # ── 去重 ──
     new_promos, dup_count = deduplicate(promos, vault_path)
